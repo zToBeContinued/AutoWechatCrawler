@@ -1,0 +1,6 @@
+/.augment/
+/.kilocode/
+/.vscode/
+/.data/*
+/.debug/*
+/.auto_wechat_extractor/*
