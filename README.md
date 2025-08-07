@@ -1,7 +1,5 @@
 # 微信公众号爬虫工具集 v3.0
 
-## 以下内容全部由AIGC生成，仅供参考！
-
 一个功能强大的微信公众号文章批量抓取工具，支持全自动化运行、多公众号处理、阅读量获取等功能。专为Windows环境设计，可配合任务计划程序实现定时自动抓取。
 
 ## 📚 文档导航
@@ -15,28 +13,24 @@
 ## 🌟 主要特性
 
 ### 🤖 全自动化运行
-
 - **零人工干预**：配合Windows任务计划程序，实现完全自动化运行
 - **智能UI自动化**：自动打开微信PC版，发送链接并触发抓取
 - **SSL错误自动绕过**：智能检测并自动处理SSL证书错误页面
 - **代理自动管理**：自动设置和清理系统代理，无需手动配置
 
 ### 📊 多公众号批量处理
-
 - **Excel批量导入**：从Excel文件读取多个公众号链接
 - **并发处理**：支持多个公众号的顺序自动处理
 - **结果汇总**：自动汇总所有公众号的抓取结果
 - **失败重试**：智能重试机制，提高抓取成功率
 
 ### 🔍 数据抓取功能
-
 - **文章列表抓取**：获取公众号历史文章列表
 - **阅读量获取**：精确获取文章阅读量、点赞数等数据
 - **文章内容抓取**：可选择性获取文章完整内容
 - **多格式导出**：支持Excel、JSON等多种格式导出
 
 ### 🛡️ 安全与稳定性
-
 - **Cookie自动获取**：通过mitmproxy自动抓取有效Cookie
 - **反爬虫机制**：内置延迟、随机化等反检测机制
 - **错误恢复**：完善的错误处理和恢复机制
@@ -45,27 +39,29 @@
 ## 📁 项目结构
 
 ```
-wechat_spider2/
+wechat_spider_gitlab/
 ├── main_enhanced.py              # 主程序入口（全自动化版本）
 ├── automated_crawler.py          # 全自动化爬虫控制器
 ├── batch_readnum_spider.py       # 批量阅读量抓取器
 ├── excel_auto_crawler.py         # Excel自动化爬虫
+├── enhanced_wx_crawler.py        # 增强版微信爬虫
 ├── wechat_browser_automation.py  # 微信浏览器UI自动化
 ├── cookie_extractor.py           # Cookie抓取器（mitmproxy插件）
 ├── read_cookie.py                # Cookie读取和管理
 ├── proxy_manager.py              # 代理管理器
 ├── enhanced_proxy_manager.py     # 增强代理管理器
 ├── utils.py                      # 工具函数
+├── credential.py                 # 凭证管理
 ├── requirements.txt              # 依赖包列表
 ├── target_articles.xlsx          # 目标文章Excel模板
 ├── run_auto_crawler.bat          # Windows批处理启动脚本
 ├── run_auto_crawler.ps1          # PowerShell启动脚本
+├── chromedriver.exe              # Chrome驱动程序
 ├── data/                         # 数据输出目录
 │   └── readnum_batch/           # 批量抓取结果
 ├── logs/                        # 日志文件目录
-├── docs/                        # 文档目录
-│   ├── SSL_BYPASS_README.md     # SSL绕过功能说明
-│   └── Windows任务计划程序配置说明.md
+├── SSL_BYPASS_README.md         # SSL绕过功能说明
+├── Windows任务计划程序配置说明.md # 任务计划配置说明
 ├── QUICK_START.md               # 快速开始指南
 ├── FAQ.md                       # 常见问题解答
 └── CHANGELOG.md                 # 更新日志
@@ -104,12 +100,11 @@ python main_enhanced.py --auto
 ### 基本使用
 
 1. **准备目标文章列表**
-
    - 打开 `target_articles.xlsx`
    - 在 `文章链接` 列填入微信公众号文章链接
    - 在 `公众号名称` 列填入对应的公众号名称
-2. **运行自动化抓取**
 
+2. **运行自动化抓取**
 ```bash
 python main_enhanced.py --auto
 ```
@@ -121,7 +116,6 @@ python main_enhanced.py --auto
 ### 高级配置
 
 #### 自定义Excel文件路径
-
 ```python
 from automated_crawler import AutomatedCrawler
 
@@ -130,7 +124,6 @@ crawler.run_full_automation()
 ```
 
 #### 配置抓取参数
-
 ```python
 # 在 batch_readnum_spider.py 中修改
 class BatchReadnumSpider:
@@ -145,13 +138,13 @@ class BatchReadnumSpider:
 为了实现定时自动抓取，可以配置Windows任务计划程序：
 
 1. **打开任务计划程序**：`Win + R` → `taskschd.msc`
-2. **创建基本任务**：
 
+2. **创建基本任务**：
    - 任务名称：`微信公众号自动爬取`
    - 触发器：每天凌晨2:00执行
    - 操作：启动程序 `run_auto_crawler.bat`
-3. **高级设置**：
 
+3. **高级设置**：
    - ✅ 不管用户是否登录都要运行
    - ✅ 使用最高权限运行
    - ✅ 允许按需运行任务
@@ -161,13 +154,11 @@ class BatchReadnumSpider:
 ## 📊 输出格式
 
 ### Excel格式输出
-
 ```
 文章标题 | 发布时间 | 阅读量 | 点赞数 | 在看数 | 文章链接 | 公众号名称
 ```
 
 ### JSON格式输出
-
 ```json
 {
   "title": "文章标题",
@@ -183,31 +174,26 @@ class BatchReadnumSpider:
 ## 🛠️ 核心功能模块
 
 ### 1. 自动化控制器 (AutomatedCrawler)
-
 - 协调整个自动化流程
 - 支持多公众号批量处理
 - 智能错误处理和重试
 
 ### 2. Cookie抓取器 (CookieExtractor)
-
 - 基于mitmproxy的Cookie自动抓取
 - 智能过滤和去重
 - 自动代理管理
 
 ### 3. UI自动化 (WeChatBrowserAutomation)
-
 - 微信PC版UI自动化操作
 - SSL错误自动绕过
 - 智能页面刷新
 
 ### 4. 批量爬虫 (BatchReadnumSpider)
-
 - 高效的批量数据抓取
 - 反爬虫机制
 - 多格式数据导出
 
 ### 5. 代理管理器 (ProxyManager)
-
 - 系统代理自动设置
 - 网络状态检测
 - 安全清理机制
@@ -242,17 +228,16 @@ class BatchReadnumSpider:
 ### 常见问题
 
 1. **Cookie获取失败**
-
    - 检查微信PC版是否正常登录
    - 确认代理设置是否正确
    - 查看mitmproxy是否正常启动
-2. **UI自动化失败**
 
+2. **UI自动化失败**
    - 确认微信PC版窗口可见
    - 检查文件传输助手是否可访问
    - 查看是否有其他程序干扰
-3. **数据抓取失败**
 
+3. **数据抓取失败**
    - 检查Cookie是否有效
    - 确认文章链接格式正确
    - 查看网络连接状态
@@ -293,23 +278,22 @@ class BatchReadnumSpider:
 ### 核心工作流程
 
 1. **初始化阶段**
-
    - 读取Excel配置文件
    - 初始化日志系统
    - 检查环境依赖
-2. **Cookie获取阶段**
 
+2. **Cookie获取阶段**
    - 启动mitmproxy代理服务
    - 设置系统代理配置
    - UI自动化触发链接访问
    - 自动抓取有效Cookie
-3. **数据抓取阶段**
 
+3. **数据抓取阶段**
    - 使用获取的Cookie进行认证
    - 批量抓取文章列表和阅读量
    - 实时保存抓取结果
-4. **清理阶段**
 
+4. **清理阶段**
    - 关闭代理服务
    - 恢复网络设置
    - 生成抓取报告
@@ -362,11 +346,11 @@ class WeChatBrowserAutomation:
 
 #### target_articles.xlsx格式
 
-| 列名       | 说明                  | 示例                               |
-| ---------- | --------------------- | ---------------------------------- |
-| 文章链接   | 微信公众号文章完整URL | `https://mp.weixin.qq.com/s/xxx` |
-| 公众号名称 | 公众号显示名称        | 科技前沿                           |
-| 备注       | 可选备注信息          | 重点关注                           |
+| 列名 | 说明 | 示例 |
+|------|------|------|
+| 文章链接 | 微信公众号文章完整URL | `https://mp.weixin.qq.com/s/xxx` |
+| 公众号名称 | 公众号显示名称 | 科技前沿 |
+| 备注 | 可选备注信息 | 重点关注 |
 
 #### 环境变量配置
 
@@ -377,38 +361,7 @@ WECHAT_SPIDER_PROXY_PORT=8080   # 代理端口
 WECHAT_SPIDER_TIMEOUT=30        # 请求超时时间
 ```
 
-## 🧪 测试
 
-### 单元测试
-
-```bash
-# 运行所有测试
-python -m pytest tests/
-
-# 运行特定测试
-python -m pytest tests/test_cookie_extractor.py
-python -m pytest tests/test_proxy_manager.py
-```
-
-### 功能测试
-
-```bash
-# 测试Cookie抓取功能
-python test_cookie_extraction.py
-
-# 测试UI自动化功能
-python test_ui_automation.py
-
-# 测试SSL绕过功能
-python test_ssl_bypass.py
-```
-
-### 集成测试
-
-```bash
-# 完整流程测试（使用测试数据）
-python main_enhanced.py --test --excel test_articles.xlsx
-```
 
 ## 📈 性能优化
 
@@ -480,22 +433,21 @@ python main_enhanced.py --test
 ### 生产环境部署
 
 1. **服务器配置**
-
    - Windows Server 2019+
    - 4GB+ RAM
    - 50GB+ 存储空间
-2. **依赖安装**
 
+2. **依赖安装**
    - Python 3.8+
    - 微信PC版
    - Chrome浏览器
-3. **服务配置**
 
+3. **服务配置**
    - 配置Windows服务
    - 设置任务计划程序
    - 配置日志轮转
-4. **监控配置**
 
+4. **监控配置**
    - 设置性能监控
    - 配置告警通知
    - 定期健康检查
@@ -534,7 +486,12 @@ chore: 构建过程或辅助工具的变动
 ### 获取帮助
 
 - **GitHub Issues**：[提交Issue](https://github.com/your-repo/wechat_spider2/issues)
-- **邮件支持**：richardli@linux.do
+- **讨论区**：[GitHub Discussions](https://github.com/your-repo/wechat_spider2/discussions)
+- **邮件支持**：`support@example.com`
+
+### 常见问题
+
+查看 [FAQ.md](docs/FAQ.md) 获取常见问题解答。
 
 ### 更新日志
 

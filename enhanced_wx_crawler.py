@@ -12,13 +12,15 @@ import random
 import re
 from bs4 import BeautifulSoup
 import html
+from database_manager import DatabaseManager
 
 
 class EnhancedWxCrawler(object):
     """增强版翻页内容抓取，支持保存到文件"""
     urllib3.disable_warnings()
 
-    def __init__(self, appmsg_token, biz, cookie, begin_page_index=0, end_page_index=5, save_to_file=True, get_content=True):
+    def __init__(self, appmsg_token, biz, cookie, begin_page_index=0, end_page_index=5, save_to_file=True, get_content=True,
+                 unit_name="", save_to_db=False, db_config=None):
         # 起始页数
         self.begin_page_index = begin_page_index
         # 结束页数
@@ -31,6 +33,25 @@ class EnhancedWxCrawler(object):
         self.get_content = get_content
         # 存储抓取的文章数据
         self.articles_data = []
+        # 单位名称（公众号名称）
+        self.unit_name = unit_name
+        # 是否保存到数据库
+        self.save_to_db = save_to_db
+        # 数据库管理器
+        self.db_manager = None
+
+        # 初始化数据库连接
+        if self.save_to_db:
+            try:
+                if db_config:
+                    self.db_manager = DatabaseManager(**db_config)
+                else:
+                    self.db_manager = DatabaseManager()  # 使用默认配置
+                print("✅ 数据库连接已建立，将实时保存文章数据")
+            except Exception as e:
+                print(f"❌ 数据库连接失败: {e}")
+                print("⚠️ 将只保存到文件，不保存到数据库")
+                self.save_to_db = False
 
         self.appmsg_token = appmsg_token
         self.biz = biz
@@ -104,6 +125,24 @@ class EnhancedWxCrawler(object):
                                 'content': content_data.get('content', ''),
                                 'content_length': content_data.get('content_length', 0),
                             })
+
+                # 添加单位名称
+                article_info['unit_name'] = self.unit_name
+
+                # 实时保存到数据库
+                if self.save_to_db and self.db_manager:
+                    try:
+                        success = self.db_manager.insert_article(article_info)
+                        if success:
+                            print(f"💾 第{self.num}条文章已保存到数据库: {article_info['title']}")
+                        else:
+                            # 检查是否是因为标题重复而跳过
+                            if article_info.get('title', '').strip() and self.db_manager.check_article_title_exists(article_info.get('title', '').strip()):
+                                print(f"⚠️ 第{self.num}条文章标题重复，已跳过: {article_info['title']}")
+                            else:
+                                print(f"❌ 第{self.num}条文章数据库保存失败: {article_info['title']}")
+                    except Exception as e:
+                        print(f"❌ 数据库保存出错: {e}")
 
                 extracted_articles.append(article_info)
                 print(f"{self.num}条 {article_info['title']}")
@@ -408,10 +447,17 @@ class EnhancedWxCrawler(object):
         # 保存数据
         if self.save_to_file and self.articles_data:
             self.save_data()
-        
+
+        # 关闭数据库连接
+        if self.db_manager:
+            self.db_manager.disconnect()
+            print("💾 数据库连接已关闭")
+
         print(f"\n🎉 抓取完成！")
         print(f"📊 总共获取 {len(self.articles_data)} 篇文章链接")
-        
+        if self.save_to_db:
+            print(f"💾 数据已实时保存到数据库")
+
         return self.articles_data
 
     def print_summary(self):

@@ -19,20 +19,42 @@ from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 from read_cookie import ReadCookie
 import utils
+from database_manager import DatabaseManager
 
 class BatchReadnumSpider:
     """批量微信公众号阅读量抓取器"""
     
-    def __init__(self, auth_info: dict = None):
+    def __init__(self, auth_info: dict = None, save_to_db=False, db_config=None, unit_name=""):
         """
         初始化批量阅读量抓取器
         :param auth_info: 包含appmsg_token, biz, cookie_str和headers的字典
+        :param save_to_db: 是否保存到数据库
+        :param db_config: 数据库配置
+        :param unit_name: 单位名称（公众号名称）
         """
         # 初始化认证信息
         self.appmsg_token = None
         self.biz = None
         self.cookie_str = None
         self.auth_info = auth_info # 存储传入的认证数据
+
+        # 数据库相关配置
+        self.save_to_db = save_to_db
+        self.unit_name = unit_name
+        self.db_manager = None
+
+        # 初始化数据库连接
+        if self.save_to_db:
+            try:
+                if db_config:
+                    self.db_manager = DatabaseManager(**db_config)
+                else:
+                    self.db_manager = DatabaseManager()  # 使用默认配置
+                print("✅ 数据库连接已建立，将实时保存文章数据")
+            except Exception as e:
+                print(f"❌ 数据库连接失败: {e}")
+                print("⚠️ 将只保存到文件，不保存到数据库")
+                self.save_to_db = False
 
         # 请求头配置 - 参考spider_readnum.py的成功实现
         self.headers = {
@@ -406,9 +428,38 @@ class BatchReadnumSpider:
                     return None
 
                 html_content = response.text
+                print(html_content)
+# ----- 保存到html
+                # 保存HTML内容到debug目录
+                try:
+                    debug_dir = "./data/debug"
+                    os.makedirs(debug_dir, exist_ok=True)
+                    
+                    # 生成文件名，使用时间戳和文章标题的前20个字符
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    
+                    # 从URL中提取文章标识符
+                    import urllib.parse
+                    parsed = urllib.parse.urlparse(clean_url)
+                    query_params = urllib.parse.parse_qs(parsed.query)
+                    mid = query_params.get('mid', ['unknown'])[0]
+                    
+                    filename = f"article_{timestamp}_{mid}.html"
+                    filepath = os.path.join(debug_dir, filename)
+                    
+                    with open(filepath, 'w', encoding='utf-8') as f:
+                        f.write(html_content)
+                    
+                    print(f"🔍 HTML内容已保存到: {filepath}")
+                    print(f"📏 文件大小: {len(html_content)} 字符")
+                    
+                except Exception as e:
+                    print(f"⚠️ 保存HTML文件失败: {e}")
 
-                # 仅显示HTML长度信息，不保存原始内容
+                # 记录HTML长度用于调试
                 print(f"📏 HTML长度: {len(html_content)} 字符")
+
+                # ------
 
                 # 检查是否遇到验证码页面
                 if "环境异常" in html_content or "完成验证" in html_content or "secitptpage/verify" in html_content:
@@ -443,12 +494,16 @@ class BatchReadnumSpider:
                 # 提取发布时间
                 publish_time = self.extract_publish_time(html_content)
 
+                # 提取公众号名称
+                account_name = self.extract_account_name(html_content)
+
                 # 构建完整的文章数据，包含内容和统计信息
                 article_data = {
                     "title": title.strip(),
                     "url": article_url,
                     "content": content,
                     "publish_time": publish_time,
+                    "account_name": account_name,
                     "read_count": 0,
                     "like_count": 0,
                     "old_like_count": 0,
@@ -572,24 +627,119 @@ class BatchReadnumSpider:
         :return: 发布时间
         """
         try:
+            print("🔍 开始提取发布时间...")
+
+            # 优先尝试提取 var createTime = '2025-08-04 14:02'; 格式
+            createtime_pattern = r"var createTime = '([^']+)'"
+            match = re.search(createtime_pattern, html_content)
+            if match:
+                found_time = match.group(1)
+                print(f"✅ 通过createTime变量找到发布时间: {found_time}")
+                return found_time
+
             # 尝试多种方式提取发布时间
             time_patterns = [
-                r'<em class="rich_media_meta rich_media_meta_text"[^>]*>(\d{4}-\d{2}-\d{2})</em>',
-                r'<span class="rich_media_meta rich_media_meta_text"[^>]*>(\d{4}-\d{2}-\d{2})</span>',
-                r'var publish_time = "(\d{4}-\d{2}-\d{2})"',
-                r'"publish_time":"(\d{4}-\d{2}-\d{2})"'
+                # 常见的日期格式
+                (r'<em class="rich_media_meta rich_media_meta_text"[^>]*>(\d{4}-\d{2}-\d{2})</em>', "em标签中的日期"),
+                (r'<span class="rich_media_meta rich_media_meta_text"[^>]*>(\d{4}-\d{2}-\d{2})</span>', "span标签中的日期"),
+                (r'var publish_time = "(\d{4}-\d{2}-\d{2})"', "JavaScript变量中的日期"),
+                (r'"publish_time":"(\d{4}-\d{2}-\d{2})"', "JSON中的日期"),
+
+                # 更多可能的格式
+                (r'<em[^>]*class="[^"]*rich_media_meta[^"]*"[^>]*>(\d{4}-\d{2}-\d{2})</em>', "em标签变体"),
+                (r'<span[^>]*class="[^"]*rich_media_meta[^"]*"[^>]*>(\d{4}-\d{2}-\d{2})</span>', "span标签变体"),
+                (r'publish_time["\']?\s*[:=]\s*["\']?(\d{4}-\d{2}-\d{2})', "通用publish_time"),
+                (r'createTime["\']?\s*[:=]\s*["\']?(\d{4}-\d{2}-\d{2})', "createTime变量"),
+                (r'ct\s*=\s*["\']?(\d{10})["\']?', "时间戳格式"),
+
+                # 包含时间的完整格式
+                (r'<em class="rich_media_meta rich_media_meta_text"[^>]*>(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})</em>', "完整时间em"),
+                (r'<span class="rich_media_meta rich_media_meta_text"[^>]*>(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})</span>', "完整时间span"),
+
+                # 中文格式
+                (r'(\d{4}年\d{1,2}月\d{1,2}日)', "中文日期格式"),
+                (r'发布时间[：:]\s*(\d{4}-\d{2}-\d{2})', "发布时间标签"),
             ]
 
-            for pattern in time_patterns:
+            for pattern, description in time_patterns:
                 match = re.search(pattern, html_content)
                 if match:
-                    return match.group(1)
+                    found_time = match.group(1)
+                    print(f"✅ 通过{description}找到发布时间: {found_time}")
 
+                    # 如果是时间戳，转换为日期格式
+                    if pattern.endswith("时间戳格式"):
+                        try:
+                            timestamp = int(found_time)
+                            formatted_time = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
+                            print(f"🔄 时间戳转换结果: {formatted_time}")
+                            return formatted_time
+                        except:
+                            pass
+
+                    return found_time
+
+            # 如果都没找到，尝试搜索任何包含日期的文本
+            print("🔍 尝试搜索任何日期格式...")
+            general_date_patterns = [
+                r'(\d{4}-\d{1,2}-\d{1,2})',
+                r'(\d{4}/\d{1,2}/\d{1,2})',
+                r'(\d{4}\.\d{1,2}\.\d{1,2})',
+            ]
+
+            for pattern in general_date_patterns:
+                matches = re.findall(pattern, html_content)
+                if matches:
+                    print(f"🔍 找到可能的日期: {matches[:5]}")  # 只显示前5个
+
+            print("❌ 未找到发布时间")
             return "未找到发布时间"
 
         except Exception as e:
             print(f"⚠️ 提取发布时间失败: {e}")
             return "提取时间失败"
+
+    def extract_account_name(self, html_content):
+        """
+        从HTML中提取公众号名称
+        :param html_content: HTML内容
+        :return: 公众号名称
+        """
+        try:
+            print("🔍 开始提取公众号名称...")
+
+            # 优先尝试提取 wx_follow_nickname 类的div中的内容
+            nickname_pattern = r'<div[^>]*class="wx_follow_nickname"[^>]*>\s*([^<]+)\s*</div>'
+            match = re.search(nickname_pattern, html_content)
+            if match:
+                account_name = match.group(1).strip()
+                print(f"✅ 通过wx_follow_nickname找到公众号名称: {account_name}")
+                return account_name
+
+            # 尝试其他可能的模式
+            name_patterns = [
+                # 其他可能的公众号名称位置
+                (r'<span[^>]*class="[^"]*profile_nickname[^"]*"[^>]*>([^<]+)</span>', "profile_nickname"),
+                (r'<div[^>]*class="[^"]*account_nickname[^"]*"[^>]*>([^<]+)</div>', "account_nickname"),
+                (r'<h1[^>]*class="[^"]*rich_media_title[^"]*"[^>]*>([^<]+)</h1>', "rich_media_title"),
+                (r'var nickname = "([^"]+)"', "JavaScript变量nickname"),
+                (r'"nickname":"([^"]+)"', "JSON中的nickname"),
+                (r'<meta property="og:site_name" content="([^"]+)"', "og:site_name"),
+            ]
+
+            for pattern, description in name_patterns:
+                match = re.search(pattern, html_content)
+                if match:
+                    account_name = match.group(1).strip()
+                    print(f"✅ 通过{description}找到公众号名称: {account_name}")
+                    return account_name
+
+            print("❌ 未找到公众号名称")
+            return "未找到公众号名称"
+
+        except Exception as e:
+            print(f"⚠️ 提取公众号名称失败: {e}")
+            return "提取名称失败"
 
     def clean_html_content(self, html_content):
         """
@@ -624,7 +774,7 @@ class BatchReadnumSpider:
             print(f"⚠️ 清理HTML内容失败: {e}")
             return html_content
 
-    def batch_crawl_readnum(self, max_pages=5, articles_per_page=10, days_back=5):
+    def batch_crawl_readnum(self, max_pages=20, articles_per_page=10, days_back=90):
         """
         批量抓取文章阅读量
         :param max_pages: 最大页数
@@ -698,6 +848,35 @@ class BatchReadnumSpider:
                             **article_data,
                             "pub_time": datetime.fromtimestamp(article['create_time']).strftime("%Y-%m-%d %H:%M:%S") if article['create_time'] else ""
                         }
+
+                        # 实时保存到数据库
+                        if self.save_to_db and self.db_manager:
+                            try:
+                                # 准备数据库插入数据
+                                db_article_data = {
+                                    'title': result.get('title', ''),
+                                    'content': result.get('content', ''),
+                                    'url': result.get('url', ''),
+                                    'pub_time': result.get('pub_time', ''),
+                                    'crawl_time': result.get('crawl_time', ''),
+                                    'unit_name': self.unit_name or result.get('account_name', ''),
+                                    'view_count': result.get('read_count', 0),
+                                    'like_count': result.get('like_count', 0),
+                                    'share_count': result.get('share_count', 0)
+                                }
+
+                                success = self.db_manager.insert_article(db_article_data)
+                                if success:
+                                    print(f"💾 第{len(all_results)+1}篇文章已保存到数据库: {result.get('title', 'Unknown')}")
+                                else:
+                                    # 检查是否是因为标题重复而跳过
+                                    if result.get('title', '').strip() and self.db_manager.check_article_title_exists(result.get('title', '').strip()):
+                                        print(f"⚠️ 第{len(all_results)+1}篇文章标题重复，已跳过: {result.get('title', 'Unknown')}")
+                                    else:
+                                        print(f"❌ 第{len(all_results)+1}篇文章数据库保存失败: {result.get('title', 'Unknown')}")
+                            except Exception as e:
+                                print(f"❌ 数据库保存出错: {e}")
+
                         page_results.append(result)
                         all_results.append(result)
 
@@ -707,7 +886,7 @@ class BatchReadnumSpider:
 
                 # 文章间延迟
                 if i < len(articles) - 1:
-                    delay = random.randint(5, 8)
+                    delay = random.randint(10, 15)
                     print(f"⏳ 文章间延迟 {delay} 秒...")
                     time.sleep(delay)
 
@@ -725,7 +904,15 @@ class BatchReadnumSpider:
                 time.sleep(page_delay)
 
         self.articles_data = all_results
+
+        # 关闭数据库连接
+        if self.db_manager:
+            self.db_manager.disconnect()
+            print("💾 数据库连接已关闭")
+
         print(f"\n🎉 批量抓取完成！共获取 {len(all_results)} 篇文章的统计数据")
+        if self.save_to_db:
+            print(f"💾 数据已实时保存到数据库")
 
         return all_results
 
@@ -744,12 +931,12 @@ class BatchReadnumSpider:
             filename = f"./data/readnum_batch/readnum_batch_{timestamp}.xlsx"
 
         try:
-            # 准备Excel数据 - 包含全部字段（不包含作者）
+            # 准备Excel数据 - 包含发布时间和公众号名称
             excel_data = []
             for article in self.articles_data:
                 excel_data.append({
                     '标题': article.get('title', ''),
-                    '文章内容': article.get('content', ''),
+                    '公众号名称': article.get('account_name', ''),
                     '发布时间': article.get('publish_time', '') or article.get('pub_time', ''),
                     '阅读量': article.get('read_count', 0),
                     '点赞数': article.get('like_count', 0),
@@ -891,7 +1078,7 @@ def main():
 
     try:
         # 批量抓取阅读量（最近7天，最多3页，每页5篇）
-        results = spider.batch_crawl_readnum(max_pages=3, articles_per_page=5, days_back=7)
+        results = spider.batch_crawl_readnum(max_pages=3, articles_per_page=5, days_back=1)
 
         if results:
             # 打印统计摘要

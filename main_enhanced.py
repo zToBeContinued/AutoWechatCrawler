@@ -11,6 +11,8 @@ import logging
 import traceback
 from datetime import datetime
 from automated_crawler import AutomatedCrawler
+from database_manager import DatabaseManager
+from database_config import get_database_config
 
 # 配置日志系统
 def setup_logging():
@@ -66,9 +68,23 @@ def main():
         sys.exit(1)
 
     try:
+        # 测试数据库连接
+        db_config = get_database_config()
+        logger.info("🔍 测试数据库连接...")
+        try:
+            with DatabaseManager(**db_config) as db:
+                count = db.get_articles_count()
+                logger.info(f"✅ 数据库连接成功！当前有 {count} 篇文章")
+                logger.info("💾 将启用数据库实时保存功能")
+                save_to_db = True
+        except Exception as e:
+            logger.error(f"❌ 数据库连接失败: {e}")
+            logger.warning("⚠️ 将只保存到文件，不保存到数据库")
+            save_to_db = False
+
         # 启动全自动化爬取流程
         logger.info("启动全新自动化爬取流程...")
-        crawler = AutomatedCrawler(excel_file)
+        crawler = AutomatedCrawler(excel_file, save_to_db=save_to_db, db_config=db_config)
         success = crawler.run()
 
         if success:

@@ -25,11 +25,27 @@ class ProxyManager:
                 'http': f'http://127.0.0.1:{self.proxy_port}',
                 'https': f'http://127.0.0.1:{self.proxy_port}'
             }
-            response = requests.get('http://httpbin.org/ip', 
-                                  proxies=proxies, 
-                                  timeout=timeout)
-            return response.status_code == 200
-        except Exception:
+
+            # 使用多个备选网站进行测试，提高成功率
+            test_urls = [
+                'http://www.baidu.com',      # 国内稳定网站
+                'http://www.qq.com',         # 备选网站1
+                'https://www.baidu.com',     # HTTPS测试
+            ]
+
+            for url in test_urls:
+                try:
+                    response = requests.get(url, proxies=proxies, timeout=timeout)
+                    if response.status_code == 200:
+                        self.logger.debug(f"代理测试成功: {url}")
+                        return True
+                except Exception as e:
+                    self.logger.debug(f"代理测试失败 {url}: {e}")
+                    continue
+
+            return False
+        except Exception as e:
+            self.logger.debug(f"代理测试异常: {e}")
             return False
     
     def is_system_proxy_enabled(self) -> bool:
@@ -138,18 +154,48 @@ class ProxyManager:
             self.logger.error(f"关闭代理失败: {e}")
             return False
     
+    def is_port_listening(self, port: int = None) -> bool:
+        """检查端口是否在监听"""
+        if port is None:
+            port = self.proxy_port
+        try:
+            import socket
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1)
+            result = sock.connect_ex(('127.0.0.1', port))
+            sock.close()
+            return result == 0
+        except Exception:
+            return False
+
     def wait_for_proxy_ready(self, max_wait: int = 30) -> bool:
         """等待代理服务启动完成"""
         start_time = time.time()
         self.logger.info("等待代理服务启动...")
-        
+
+        # 首先等待端口开始监听
+        port_ready = False
+        while time.time() - start_time < 10:  # 最多等待10秒端口监听
+            if self.is_port_listening():
+                self.logger.info(f"✅ 端口 {self.proxy_port} 已开始监听")
+                port_ready = True
+                break
+            time.sleep(1)
+
+        if not port_ready:
+            self.logger.error(f"❌ 端口 {self.proxy_port} 在10秒内未开始监听")
+            return False
+
+        # 然后测试代理功能
         while time.time() - start_time < max_wait:
-            if self.is_proxy_working(timeout=2):
-                self.logger.info("代理服务已启动并正常工作")
+            if self.is_proxy_working(timeout=3):
+                self.logger.info("✅ 代理服务已启动并正常工作")
                 return True
+            elapsed = int(time.time() - start_time)
+            self.logger.debug(f"代理功能测试中... ({elapsed}s/{max_wait}s)")
             time.sleep(2)
-        
-        self.logger.error("代理服务启动超时")
+
+        self.logger.error(f"❌ 代理服务启动超时 ({max_wait}秒)")
         return False
     
     def kill_mitmproxy_processes(self):
@@ -180,12 +226,27 @@ class ProxyManager:
     def validate_and_fix_network(self):
         """验证网络连接正常"""
         try:
-            # 测试不使用代理是否能连接外网
-            requests.get('https://httpbin.org/ip', timeout=5)
-            self.logger.info("✅ 网络连接正常（无代理）")
-            return True
+            # 测试不使用代理是否能连接外网，使用多个备选网站
+            test_urls = [
+                'https://www.baidu.com',
+                'http://www.baidu.com',
+                'https://www.qq.com'
+            ]
+
+            for url in test_urls:
+                try:
+                    response = requests.get(url, timeout=5)
+                    if response.status_code == 200:
+                        self.logger.info(f"✅ 网络连接正常（无代理）- 测试网站: {url}")
+                        return True
+                except Exception as e:
+                    self.logger.debug(f"网络测试失败 {url}: {e}")
+                    continue
+
+            self.logger.error("❌ 网络连接异常: 所有测试网站均无法访问")
+            return False
         except Exception as e:
-            self.logger.error(f"❌ 网络连接异常: {e}")
+            self.logger.error(f"❌ 网络连接验证异常: {e}")
             return False
     
     def reset_network_state(self):

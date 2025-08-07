@@ -10,6 +10,8 @@ import pandas as pd
 from read_cookie import ReadCookie
 from batch_readnum_spider import BatchReadnumSpider
 from excel_auto_crawler import ExcelAutoCrawler
+from database_manager import DatabaseManager
+from database_config import get_database_config
 
 class AutomatedCrawler:
     """
@@ -23,10 +25,25 @@ class AutomatedCrawler:
        - 使用获取到的 Cookie 运行批量爬虫
     3. 汇总所有公众号的抓取结果
     """
-    def __init__(self, excel_path="target_articles.xlsx"):
+    def __init__(self, excel_path="target_articles.xlsx", save_to_db=True, db_config=None):
         self.logger = logging.getLogger()
         self.excel_path = excel_path
         # 不在初始化时创建cookie_reader，每个公众号单独创建
+
+        # 数据库相关配置
+        self.save_to_db = save_to_db
+        self.db_config = db_config or get_database_config()
+
+        # 测试数据库连接
+        if self.save_to_db:
+            try:
+                with DatabaseManager(**self.db_config) as db:
+                    count = db.get_articles_count()
+                    self.logger.info(f"✅ 数据库连接成功！当前有 {count} 篇文章")
+            except Exception as e:
+                self.logger.error(f"❌ 数据库连接失败: {e}")
+                self.logger.warning("⚠️ 将只保存到文件，不保存到数据库")
+                self.save_to_db = False
 
     def _get_all_target_urls_from_excel(self) -> list:
         """
@@ -163,7 +180,12 @@ class AutomatedCrawler:
                     for attempt in range(max_attempts):
                         try:
                             self.logger.info(f"🔄 第 {attempt + 1}/{max_attempts} 次尝试爬取...")
-                            batch_spider = BatchReadnumSpider(auth_info=auth_info)
+                            batch_spider = BatchReadnumSpider(
+                                auth_info=auth_info,
+                                save_to_db=self.save_to_db,
+                                db_config=self.db_config,
+                                unit_name=target['name']
+                            )
 
                             # 先验证Cookie
                             if not batch_spider.validate_cookie():
