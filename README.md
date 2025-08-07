@@ -17,11 +17,13 @@
 
 ```bash
 # 1. 下载项目
+git clone https://github.com/RichardQt/AutoWechatCrawler.git
+cd AutoWechatCrawler
 # 2. 安装依赖
 pip install -r requirements.txt
 
 # 3. 运行程序
-python main_enhanced.py --auto
+python main_enhanced.py
 ```
 
 ### 📋 环境要求
