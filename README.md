@@ -19,6 +19,7 @@
 # 1. 下载项目
 git clone https://github.com/RichardQt/AutoWechatCrawler.git
 cd AutoWechatCrawler
+
 # 2. 安装依赖
 pip install -r requirements.txt
 
