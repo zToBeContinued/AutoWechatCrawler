@@ -19,22 +19,12 @@ if errorlevel 1 (
 
 echo ✅ Python环境检查通过
 
-REM 检查是否在正确的目录
-if not exist "run_database_crawler.py" (
-    echo ❌ 未找到 run_database_crawler.py 文件
-    echo 请确保在正确的项目目录中运行此脚本
-    pause
-    exit /b 1
-)
-
-echo ✅ 项目文件检查通过
-
 REM 运行主程序
 echo.
 echo 🚀 启动微信公众号爬虫数据库版本...
 echo.
 
-python run_database_crawler.py
+python src\core\run_database_crawler.py
 
 echo.
 echo 程序已结束

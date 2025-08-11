@@ -5,14 +5,23 @@ import logging
 import time
 import os
 import json
-from read_cookie import ReadCookie
-from batch_readnum_spider import BatchReadnumSpider
-from wechat_browser_automation import WeChatBrowserAutomation, UI_AUTOMATION_AVAILABLE
+from src.proxy.read_cookie import ReadCookie
+from src.crawler.batch_readnum_spider import BatchReadnumSpider
+from src.ui.wechat_browser_automation import WeChatBrowserAutomation, UI_AUTOMATION_AVAILABLE
+from config import get_crawler_config
 
 class ExcelAutoCrawler:
     def __init__(self, excel_path="target_articles.xlsx"):
+        cfg = get_crawler_config()
+        if excel_path == "target_articles.xlsx":
+            excel_path = cfg.get('excel_file', excel_path)
         self.excel_path = excel_path
         self.logger = logging.getLogger()
+        self.crawler_config = cfg
+        self.days_back = self.crawler_config.get('days_back', 90)
+        self.max_pages = self.crawler_config.get('max_pages', 200)
+        self.articles_per_page = self.crawler_config.get('articles_per_page', 5)
+        self.account_delay = self.crawler_config.get('account_delay', 15)
         
         if not UI_AUTOMATION_AVAILABLE:
             raise ImportError("UI自动化库 'uiautomation' 未安装或导入失败。")
@@ -204,7 +213,11 @@ class ExcelAutoCrawler:
                 current_spider.headers['Cookie'] = cookie_data['cookie_str']
 
                 # 执行爬取
-                current_spider.batch_crawl_readnum(max_pages=3, days_back=7)
+                current_spider.batch_crawl_readnum(
+                    max_pages=self.max_pages,
+                    articles_per_page=self.articles_per_page,
+                    days_back=self.days_back
+                )
 
                 if current_spider.articles_data:
                     # 为每篇文章添加公众号信息
@@ -228,9 +241,8 @@ class ExcelAutoCrawler:
 
                 # 公众号间延迟，避免频繁请求
                 if i < len(all_targets):
-                    delay_time = 10
-                    self.logger.info(f"⏳ 公众号间延迟 {delay_time} 秒...")
-                    time.sleep(delay_time)
+                    self.logger.info(f"⏳ 公众号间延迟 {self.account_delay} 秒...")
+                    time.sleep(self.account_delay)
 
             except Exception as e:
                 self.logger.error(f"❌ 处理公众号 '{target['name']}' 时发生错误: {e}")

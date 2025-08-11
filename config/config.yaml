@@ -1,0 +1,84 @@
+# 微信公众号爬虫配置文件
+# WeChat Official Account Crawler Configuration
+
+# 数据库配置
+database:
+  host: "127.0.0.1"
+  port: 3306
+  user: "root"
+  password: "123456"
+  database: "faxuan"
+  table_name: "fx_article_records_new"
+  crawl_channel_default: "微信公众号"
+
+# 爬取配置
+crawler:
+  # 抓取多少天内的文章
+  # 自然日语义：
+  #  1 => 昨日 00:00:00 起至今天当前时间（含）
+  #  7 => 7天前 00:00:00 起至今天当前时间（含）
+  days_back: 2
+  # 分段回填开关（当目标天数较大时分批抓旧数据，避免一次深翻）
+  staged_backfill_enabled: false
+  # 分段阶段（必须递增；最后一个应等于 days_back；仅在 staged_backfill_enabled 且 days_back >= staged_backfill_min_days_threshold 时启用）
+  staged_backfill_stages: [30, 60, 90]
+  # 小于该阈值(days_back)不启用分段，直接用 days_back 全窗口
+  staged_backfill_min_days_threshold: 10
+  # 状态文件（记录已完成阶段、防止重复）
+  staged_backfill_state_file: "data/runtime/backfill_state.json"
+  # 自适应 max_pages 开关（按账号 & 阶段自动估算翻页数量）
+  adaptive_max_pages_enabled: true
+  # 自适应全局硬上限（防止异常放大）
+  adaptive_max_pages_hard_cap: 150
+  # 自适应基础日均群发基线（当无历史统计时使用）
+  adaptive_base_daily_posts: 8
+  # 自适应最小页数
+  adaptive_min_pages: 5
+  # 最大爬取页数
+  max_pages: 200
+  # 每页文章数量
+  articles_per_page: 5
+  # UI自动化刷新次数
+  refresh_count: 3
+  # 请求间隔（秒）
+  min_interval: 10
+  # 最大重试次数
+  max_retries: 3
+  # 请求超时时间（秒）
+  timeout: 30
+  # 公众号之间的延迟（秒）
+  account_delay: 360
+  # 等待抓Cookie超时时间（秒）
+  cookie_wait_timeout: 120
+  # 单篇文章之间随机延迟范围（秒）
+  article_delay_range: [10, 15]
+  # 页面之间随机延迟范围（秒）
+  page_delay_range: [15, 20]
+  # 刷新 x-wechat-key 的最小间隔（秒）
+  min_rekey_interval_sec: 1500
+  # Excel 目标文件路径
+  excel_file: "target_articles.xlsx"
+
+# 文章ID生成配置
+article_id:
+  time_format: "%Y%m%d%H%M"
+  random_digits: 4
+
+# 数据库操作配置
+db_operation:
+  auto_reconnect: true
+  connection_timeout: 30
+  batch_insert_delay: 0.1
+  max_retry_times: 3
+
+# UI自动化配置
+ui_automation:
+  search_timeout: 15
+  click_retry_count: 3
+  wait_after_click: 2
+  max_recursion_depth: 5
+
+# 日志配置
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(levelname)s - %(message)s"

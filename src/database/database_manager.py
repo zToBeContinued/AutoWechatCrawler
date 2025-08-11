@@ -9,14 +9,17 @@ import pymysql
 import logging
 import random
 import string
+import os
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 import time
 
+from src.database.database_config import get_table_config
+
 class DatabaseManager:
     """数据库管理器，负责微信公众号文章数据的数据库操作"""
     
-    def __init__(self, host='127.0.0.1', port=3306, user='root', password='root', database='xuanfa'):
+    def __init__(self, host='127.0.0.1', port=3306, user='root', password='root', database='faxuan', table_name: Optional[str] = None):
         """
         初始化数据库连接
         
@@ -34,7 +37,12 @@ class DatabaseManager:
         self.database = database
         self.connection = None
         self.logger = logging.getLogger(__name__)
-        
+
+        # 读取表配置
+        table_cfg = get_table_config()
+        self.table_name = table_name or table_cfg.get('table_name', 'fx_article_records')
+        self.crawl_channel_default = table_cfg.get('crawl_channel_default', '微信公众号')
+
         # 初始化数据库连接
         self.connect()
     
@@ -157,7 +165,7 @@ class DatabaseManager:
             # 准备插入数据
             insert_data = {
                 'crawl_time': crawl_time,
-                'crawl_channel': '微信公众号',  # 固定值
+                'crawl_channel': self.crawl_channel_default,  # 从配置读取默认值
                 'unit_name': article_data.get('unit_name', ''),
                 'article_title': article_data.get('title', ''),
                 'article_content': article_data.get('content', ''),
@@ -172,11 +180,11 @@ class DatabaseManager:
             }
             
             # 构建SQL语句
-            sql = """
-            INSERT INTO fx_article_records 
-            (crawl_time, crawl_channel, unit_name, article_title, article_content, 
+            sql = f"""
+            INSERT INTO {self.table_name}
+            (crawl_time, crawl_channel, unit_name, article_title, article_content,
              publish_time, view_count, likes, comments, article_url, article_id, create_time, update_time)
-            VALUES 
+            VALUES
             (%(crawl_time)s, %(crawl_channel)s, %(unit_name)s, %(article_title)s, %(article_content)s,
              %(publish_time)s, %(view_count)s, %(likes)s, %(comments)s, %(article_url)s, %(article_id)s, %(create_time)s, %(update_time)s)
             """
@@ -257,7 +265,7 @@ class DatabaseManager:
                 return False
 
         try:
-            sql = "SELECT COUNT(*) as count FROM fx_article_records WHERE article_url = %s"
+            sql = f"SELECT COUNT(*) as count FROM {self.table_name} WHERE article_url = %s"
             with self.connection.cursor() as cursor:
                 cursor.execute(sql, (article_url,))
                 result = cursor.fetchone()
@@ -281,7 +289,7 @@ class DatabaseManager:
                 return False
 
         try:
-            sql = "SELECT COUNT(*) as count FROM fx_article_records WHERE article_title = %s"
+            sql = f"SELECT COUNT(*) as count FROM {self.table_name} WHERE article_title = %s"
             with self.connection.cursor() as cursor:
                 cursor.execute(sql, (article_title,))
                 result = cursor.fetchone()
@@ -302,7 +310,7 @@ class DatabaseManager:
                 return 0
         
         try:
-            sql = "SELECT COUNT(*) as count FROM fx_article_records"
+            sql = f"SELECT COUNT(*) as count FROM {self.table_name}"
             with self.connection.cursor() as cursor:
                 cursor.execute(sql)
                 result = cursor.fetchone()

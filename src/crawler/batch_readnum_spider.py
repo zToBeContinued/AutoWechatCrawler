@@ -15,16 +15,19 @@ import pandas as pd
 import winreg
 import ctypes
 import contextlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from bs4 import BeautifulSoup
-from read_cookie import ReadCookie
-import utils
-from database_manager import DatabaseManager
+
+from src.proxy.read_cookie import ReadCookie
+from src.ui.wechat_browser_automation import WeChatBrowserAutomation, UI_AUTOMATION_AVAILABLE
+from src.utils import utils
+from src.database.database_manager import DatabaseManager
+from config import get_crawler_config
 
 class BatchReadnumSpider:
     """批量微信公众号阅读量抓取器"""
     
-    def __init__(self, auth_info: dict = None, save_to_db=False, db_config=None, unit_name=""):
+    def __init__(self, auth_info: dict = None, save_to_db=False, db_config=None, unit_name="", crawler_config=None):
         """
         初始化批量阅读量抓取器
         :param auth_info: 包含appmsg_token, biz, cookie_str和headers的字典
@@ -36,7 +39,7 @@ class BatchReadnumSpider:
         self.appmsg_token = None
         self.biz = None
         self.cookie_str = None
-        self.auth_info = auth_info # 存储传入的认证数据
+        self.auth_info = auth_info  # 存储传入的认证数据
 
         # 数据库相关配置
         self.save_to_db = save_to_db
@@ -82,14 +85,24 @@ class BatchReadnumSpider:
         # 数据存储 - 统一存储所有字段
         self.articles_data = []
 
-        # 频率控制
+        # 频率控制（引入配置）
         self.request_count = 0
         self.last_request_time = 0
-        self.min_interval = 3  # 最小请求间隔（秒）
+        self.crawler_config = crawler_config or get_crawler_config()
+        self.min_interval = self.crawler_config.get('min_interval', 3)
+        self.article_delay_range = self.crawler_config.get('article_delay_range', [10, 15])
+        self.page_delay_range = self.crawler_config.get('page_delay_range', [10, 20])
+        self.refresh_count_cfg = self.crawler_config.get('refresh_count', 3)
+        self.refresh_delay_cfg = self.crawler_config.get('refresh_delay', 3.0)
+        self.timeout = self.crawler_config.get('timeout', 30)
+        self.max_retries = self.crawler_config.get('max_retries', 3)
 
         # 创建数据目录
         os.makedirs("./data/readnum_batch", exist_ok=True)
-        
+        # key 刷新节流
+        self.last_key_refresh_time = None
+        self.min_rekey_interval_sec = self.crawler_config.get('min_rekey_interval_sec', 1500)
+
     def load_auth_info(self):
         """从传入的认证数据加载认证信息和headers"""
         if not self.auth_info:
@@ -277,7 +290,18 @@ class BatchReadnumSpider:
         try:
             print(f"📡 获取文章列表：第{begin_page+1}页，每页{count}篇")
             
-            response = requests.get(page_url, params=params, headers=headers, verify=False, timeout=30)
+            # 增加简单重试机制（最多 self.max_retries 次）
+            for attempt in range(1, self.max_retries + 1):
+                try:
+                    response = requests.get(page_url, params=params, headers=headers, verify=False, timeout=self.timeout)
+                    break
+                except Exception as e:
+                    if attempt == self.max_retries:
+                        print(f"❌ 请求失败（第{attempt}次/共{self.max_retries}次）: {e}")
+                        return []
+                    wait = min(3, attempt)
+                    print(f"⚠️ 请求异常第{attempt}次，{wait}s后重试: {e}")
+                    time.sleep(wait)
             
             if response.status_code != 200:
                 print(f"❌ 请求失败，状态码: {response.status_code}")
@@ -421,43 +445,53 @@ class BatchReadnumSpider:
             with self.manage_system_proxy("127.0.0.1:8080"):
                 # 使用GET请求访问文章页面
                 base_url = "https://mp.weixin.qq.com/s"
-                response = requests.get(base_url, params=params, headers=headers, timeout=30)
+                # 获取单篇文章：同样使用超时与重试
+                for attempt in range(1, self.max_retries + 1):
+                    try:
+                        response = requests.get(base_url, params=params, headers=headers, timeout=self.timeout)
+                        break
+                    except Exception as e:
+                        if attempt == self.max_retries:
+                            print(f"❌ 文章请求失败（第{attempt}次/共{self.max_retries}次）: {e}")
+                            return None
+                        wait = min(3, attempt)
+                        print(f"⚠️ 文章请求异常第{attempt}次，{wait}s后重试: {e}")
+                        time.sleep(wait)
 
                 if response.status_code != 200:
                     print(f"❌ 文章请求失败，状态码: {response.status_code}")
                     return None
 
                 html_content = response.text
-                print(html_content)
-# ----- 保存到html
-                # 保存HTML内容到debug目录
-                try:
-                    debug_dir = "./data/debug"
-                    os.makedirs(debug_dir, exist_ok=True)
+# ----- 保存到html-----debug测试
+                # # 保存HTML内容到debug目录
+                # try:
+                #     debug_dir = "./data/debug"
+                #     os.makedirs(debug_dir, exist_ok=True)
                     
-                    # 生成文件名，使用时间戳和文章标题的前20个字符
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                #     # 生成文件名，使用时间戳和文章标题的前20个字符
+                #     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     
-                    # 从URL中提取文章标识符
-                    import urllib.parse
-                    parsed = urllib.parse.urlparse(clean_url)
-                    query_params = urllib.parse.parse_qs(parsed.query)
-                    mid = query_params.get('mid', ['unknown'])[0]
+                #     # 从URL中提取文章标识符
+                #     import urllib.parse
+                #     parsed = urllib.parse.urlparse(clean_url)
+                #     query_params = urllib.parse.parse_qs(parsed.query)
+                #     mid = query_params.get('mid', ['unknown'])[0]
                     
-                    filename = f"article_{timestamp}_{mid}.html"
-                    filepath = os.path.join(debug_dir, filename)
+                #     filename = f"article_{timestamp}_{mid}.html"
+                #     filepath = os.path.join(debug_dir, filename)
                     
-                    with open(filepath, 'w', encoding='utf-8') as f:
-                        f.write(html_content)
+                #     with open(filepath, 'w', encoding='utf-8') as f:
+                #         f.write(html_content)
                     
-                    print(f"🔍 HTML内容已保存到: {filepath}")
-                    print(f"📏 文件大小: {len(html_content)} 字符")
+                #     print(f"🔍 HTML内容已保存到: {filepath}")
+                #     print(f"📏 文件大小: {len(html_content)} 字符")
                     
-                except Exception as e:
-                    print(f"⚠️ 保存HTML文件失败: {e}")
+                # except Exception as e:
+                #     print(f"⚠️ 保存HTML文件失败: {e}")
 
-                # 记录HTML长度用于调试
-                print(f"📏 HTML长度: {len(html_content)} 字符")
+                # # 记录HTML长度用于调试
+                # print(f"📏 HTML长度: {len(html_content)} 字符")
 
                 # ------
 
@@ -525,6 +559,10 @@ class BatchReadnumSpider:
 
                 article_data["read_count"] = read_count
 
+                # 若阅读量为0且非验证码/非文章页面，标记为疑似key过期，供上层触发re-key
+                if read_count == 0:
+                    article_data["error"] = article_data.get("error") or "key_expired"
+
                 # 提取点赞数 - 使用成功验证的模式
                 like_num_match = re.search(r"window\.appmsg_bar_data = {[^}]*?like_count: '(\d+)'", html_content)
                 like_count = int(like_num_match.group(1)) if like_num_match else 0
@@ -562,6 +600,85 @@ class BatchReadnumSpider:
             import traceback
             traceback.print_exc()
             return None
+
+    def refresh_wechat_key_for_article(self, article_url: str) -> bool:
+        """
+        触发一次临时抓包以刷新 x-wechat-key：
+        1) 启动抓包器
+        2) 优先刷新当前微信文章窗口；若失败/无新包，回退为发送链接再点击
+        3) 读取最新cookie/headers，更新当前实例认证信息
+        """
+        try:
+            now_ts = time.time()
+            # 简单的节流，避免短时间内多次re-key
+            if self.last_key_refresh_time and (now_ts - self.last_key_refresh_time) < self.min_rekey_interval_sec:
+                remain = int(self.min_rekey_interval_sec - (now_ts - self.last_key_refresh_time))
+                print(f"⏳ 距上次key刷新过短（剩余{remain}s），跳过本次re-key")
+                return False
+
+            print("🔄 开始临时刷新x-wechat-key流程…")
+            reader = ReadCookie()
+            if not reader.start_cookie_extractor():
+                print("❌ 抓包器启动失败，无法刷新key")
+                return False
+
+            # 优先：只刷新当前文章窗口，避免再次发送链接
+            captured = False
+            try:
+                if UI_AUTOMATION_AVAILABLE:
+                    autom = WeChatBrowserAutomation()
+                    print("🔁 正在刷新当前微信文章窗口以触发新请求…")
+                    autom.auto_refresh_browser(refresh_count=self.refresh_count_cfg,
+                                               refresh_delay=self.refresh_delay_cfg,
+                                               cookie_reader=reader)
+                else:
+                    print("⚠️ UI自动化不可用，跳过窗口刷新步骤")
+            except Exception as e:
+                print(f"⚠️ 刷新文章窗口时出错: {e}")
+
+            # 等待抓包结果（先给较短时间）
+            if reader.wait_for_new_cookie(timeout=45):
+                captured = True
+            else:
+                print("⚠️ 刷新未触发到新包，回退为重新打开该文章…")
+                try:
+                    if UI_AUTOMATION_AVAILABLE:
+                        autom = WeChatBrowserAutomation()
+                        autom.send_and_open_latest_link(article_url, cookie_reader=reader)
+                        # 再等一次
+                        captured = reader.wait_for_new_cookie(timeout=90)
+                    else:
+                        print("❌ UI自动化不可用，无法回退到重新打开链接")
+                except Exception as e:
+                    print(f"❌ 回退重新打开链接时出错: {e}")
+
+            auth_info = None
+            if captured:
+                auth_info = reader.get_latest_cookies()
+
+            # 结束抓包器
+            try:
+                reader.stop_cookie_extractor()
+            except Exception:
+                pass
+
+            if not captured or not auth_info:
+                print("❌ 未能获取新的认证信息（x-wechat-key）")
+                return False
+
+            # 用新的认证信息更新当前实例
+            print("✅ 获取到新的认证信息，正在更新请求头…")
+            self.auth_info = auth_info
+            if not self.load_auth_info():
+                print("⚠️ 新认证信息加载失败")
+                return False
+
+            self.last_key_refresh_time = time.time()
+            print("✅ x-wechat-key刷新完成")
+            return True
+        except Exception as e:
+            print(f"❌ 刷新key流程异常: {e}")
+            return False
 
     def extract_article_content(self, html_content):
         """
@@ -774,7 +891,8 @@ class BatchReadnumSpider:
             print(f"⚠️ 清理HTML内容失败: {e}")
             return html_content
 
-    def batch_crawl_readnum(self, max_pages=20, articles_per_page=10, days_back=90):
+    def batch_crawl_readnum(self, max_pages=200, articles_per_page=5, days_back=90, 
+                             lower_bound_dt=None, upper_bound_dt=None, stage_label: str = None):
         """
         批量抓取文章阅读量
         :param max_pages: 最大页数
@@ -783,7 +901,10 @@ class BatchReadnumSpider:
         :return: 抓取结果列表
         """
         print(f"🚀 开始批量抓取阅读量数据")
-        print(f"📋 参数: 最大{max_pages}页，每页{articles_per_page}篇，{days_back}天内文章")
+        if lower_bound_dt and upper_bound_dt:
+            print(f"📋 分段回填阶段: {stage_label or ''} 时间窗口 {lower_bound_dt.strftime('%Y-%m-%d %H:%M:%S')} -> {upper_bound_dt.strftime('%Y-%m-%d %H:%M:%S')} (左闭右开)")
+        else:
+            print(f"📋 参数: 最大{max_pages}页，每页{articles_per_page}篇，最近{days_back}个自然日 + 当天(到当前) 内文章")
 
         if not self.load_auth_info():
             print("❌ 认证信息加载失败，无法继续")
@@ -794,8 +915,23 @@ class BatchReadnumSpider:
             print("❌ Cookie验证失败，请重新获取Cookie")
             return []
 
+        # 初始化结果与时间窗口（自然日语义）
+        # days_back = 1 => 昨日00:00:00 到 今天当前时间
+        # days_back = 7 => 7天前的00:00:00 到 今天当前时间
+        # 起始时间 = 今天00:00 - days_back 天
+        # 结束时间 = 当前时刻
         all_results = []
-        cutoff_date = datetime.now() - timedelta(days=days_back)
+        beijing_tz = timezone(timedelta(hours=8))
+        now_bj = datetime.now(beijing_tz)
+        if lower_bound_dt and upper_bound_dt:
+            cutoff_date = lower_bound_dt  # 复用变量名用于后续日志引用（下界）
+        else:
+            today_start = now_bj.replace(hour=0, minute=0, second=0, microsecond=0)
+            cutoff_date = today_start - timedelta(days=days_back)
+            print("🕒 时间窗口(自然日模式):")
+            print(f"   当前北京时间: {now_bj.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"   起始(含): {cutoff_date.strftime('%Y-%m-%d %H:%M:%S')} —— 从该日00:00:00开始")
+            print(f"   结束(含): 当前时刻 (不等待当天结束)")
 
         for page in range(max_pages):
             print(f"\n{'='*50}")
@@ -817,12 +953,22 @@ class BatchReadnumSpider:
                 # 检查文章时间
                 if article['create_time']:
                     try:
-                        article_date = datetime.fromtimestamp(article['create_time'])
-                        if article_date < cutoff_date:
-                            print(f"⏰ 文章超出时间范围，跳过")
-                            outdated_count += 1
-                            continue
-                    except:
+                        article_date = datetime.fromtimestamp(article['create_time'], beijing_tz)
+                        if lower_bound_dt and upper_bound_dt:
+                            # 分段模式：保留 lower_bound_dt <= date < upper_bound_dt
+                            if article_date < lower_bound_dt:
+                                print(f"⏰ (过深) {article_date.strftime('%Y-%m-%d %H:%M:%S')} < {lower_bound_dt.strftime('%Y-%m-%d %H:%M:%S')} 跳过")
+                                outdated_count += 1
+                                continue
+                            if article_date >= upper_bound_dt:
+                                print(f"⏭️ (已抓较新段) {article_date.strftime('%Y-%m-%d %H:%M:%S')} >= {upper_bound_dt.strftime('%Y-%m-%d %H:%M:%S')} 跳过")
+                                continue
+                        else:
+                            if article_date < cutoff_date:
+                                print(f"⏰ 文章时间 {article_date.strftime('%Y-%m-%d %H:%M:%S')} 早于窗口起始 {cutoff_date.strftime('%Y-%m-%d %H:%M:%S')}，跳过")
+                                outdated_count += 1
+                                continue
+                    except Exception as _:
                         pass
 
                 # 抓取文章内容和统计数据
@@ -840,13 +986,65 @@ class BatchReadnumSpider:
                         print(f"⚠️ 非文章页面，跳过")
                         continue
 
+                    # 检测疑似key过期（阅读量=0），触发一次re-key并重试当前文章
+                    elif article_data.get('error') == 'key_expired':
+                        print("⚠️ 读取到阅读量为0，疑似x-wechat-key过期，尝试刷新key并重试…")
+                        rekey_ok = self.refresh_wechat_key_for_article(article['url'])
+                        if rekey_ok:
+                            # 重试一次当前文章
+                            time.sleep(random.randint(2, 4))
+                            retry_data = self.extract_article_content_and_stats(article['url'])
+                            if retry_data and retry_data.get('read_count', 0) > 0 and not retry_data.get('error'):
+                                print("✅ 重试成功，已获取非零阅读量")
+                                result = {
+                                    **article,
+                                    **retry_data,
+                                    "pub_time": article_date.strftime("%Y-%m-%d %H:%M:%S") if article.get('create_time') else ""
+                                }
+                                # 实时保存到数据库（与正常路径一致）
+                                if self.save_to_db and self.db_manager:
+                                    try:
+                                        db_article_data = {
+                                            'title': result.get('title', ''),
+                                            'content': result.get('content', ''),
+                                            'url': result.get('url', ''),
+                                            'pub_time': result.get('pub_time', ''),
+                                            'crawl_time': result.get('crawl_time', ''),
+                                            'unit_name': self.unit_name or result.get('account_name', ''),
+                                            'view_count': result.get('read_count', 0),
+                                            'like_count': result.get('like_count', 0),
+                                            'share_count': result.get('share_count', 0)
+                                        }
+                                        success = self.db_manager.insert_article(db_article_data)
+                                        if success:
+                                            print(f"💾 第{len(all_results)+1}篇文章已保存到数据库: {result.get('title', 'Unknown')}")
+                                        else:
+                                            if result.get('title', '').strip() and self.db_manager.check_article_title_exists(result.get('title', '').strip()):
+                                                print(f"⚠️ 第{len(all_results)+1}篇文章标题重复，已跳过: {result.get('title', 'Unknown')}")
+                                            else:
+                                                print(f"❌ 第{len(all_results)+1}篇文章数据库保存失败: {result.get('title', 'Unknown')}")
+                                    except Exception as e:
+                                        print(f"❌ 数据库保存出错: {e}")
+
+                                page_results.append(result)
+                                all_results.append(result)
+                                print(f"✅ 完成 {len(all_results)} 篇文章")
+                                # 文章间延迟逻辑保留
+                            else:
+                                print("❌ 重试后阅读量仍为0或失败，继续下篇")
+                        else:
+                            print("❌ 刷新key失败，继续下篇")
+                        # 无论成败，进入下一篇
+                        continue
+
                     # 正常的统计数据
                     else:
                         # 合并文章信息和统计数据
                         result = {
                             **article,
                             **article_data,
-                            "pub_time": datetime.fromtimestamp(article['create_time']).strftime("%Y-%m-%d %H:%M:%S") if article['create_time'] else ""
+                            "pub_time": datetime.fromtimestamp(article['create_time'], beijing_tz).strftime("%Y-%m-%d %H:%M:%S") if article['create_time'] else "",
+                            "stage": stage_label or ""
                         }
 
                         # 实时保存到数据库
@@ -886,7 +1084,8 @@ class BatchReadnumSpider:
 
                 # 文章间延迟
                 if i < len(articles) - 1:
-                    delay = random.randint(10, 15)
+                    low, high = self.article_delay_range if len(self.article_delay_range) == 2 else (10, 15)
+                    delay = random.randint(low, high)
                     print(f"⏳ 文章间延迟 {delay} 秒...")
                     time.sleep(delay)
 
@@ -899,7 +1098,8 @@ class BatchReadnumSpider:
 
             # 页面间延迟
             if page < max_pages - 1:
-                page_delay = random.randint(10, 20)
+                low, high = self.page_delay_range if len(self.page_delay_range) == 2 else (10, 20)
+                page_delay = random.randint(low, high)
                 print(f"⏳ 页面间延迟 {page_delay} 秒...")
                 time.sleep(page_delay)
 

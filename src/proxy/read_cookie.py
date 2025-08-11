@@ -5,7 +5,7 @@ import subprocess
 import time
 import logging
 from datetime import datetime
-from proxy_manager import ProxyManager
+from src.proxy.proxy_manager import ProxyManager
 
 class ReadCookie(object):
     """

@@ -20,13 +20,6 @@ if errorlevel 1 (
 )
 
 REM 检查必要文件是否存在
-if not exist "main_enhanced.py" (
-    echo 错误: 未找到main_enhanced.py文件
-    echo 请确保在正确的目录下运行此脚本
-    pause
-    exit /b 1
-)
-
 if not exist "target_articles.xlsx" (
     echo 错误: 未找到target_articles.xlsx文件
     echo 请确保Excel文件存在并包含正确的公众号信息
@@ -41,7 +34,7 @@ echo 正在启动微信公众号全自动爬取程序...
 echo.
 
 REM 执行Python脚本
-python main_enhanced.py --auto
+python main.py
 
 REM 检查执行结果
 if errorlevel 1 (

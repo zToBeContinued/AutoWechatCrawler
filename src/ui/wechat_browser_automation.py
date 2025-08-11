@@ -651,13 +651,14 @@ class WeChatBrowserAutomation:
             logging.error(f"查找和激活浏览器窗口时发生错误: {e}")
             return False
 
-    def auto_refresh_browser(self, refresh_count: int = 2, refresh_delay: float = 2) -> bool:
+    def auto_refresh_browser(self, refresh_count: int = 2, refresh_delay: float = 2, cookie_reader=None) -> bool:
         """
         自动刷新当前打开的浏览器窗口（使用浏览器窗口自动检测）
 
         参数:
             refresh_count: 刷新次数，默认3次（适合抓包需求）
             refresh_delay: 每次刷新后的等待时间（秒），默认2.5秒
+            cookie_reader: 可选，抓包读取器；若提供，将在检测到抓包成功后提前停止
 
         返回:
             bool: 刷新操作是否成功
@@ -668,6 +669,11 @@ class WeChatBrowserAutomation:
         logging.info("开始执行自动浏览器刷新...")
 
         try:
+            # 如果提供了cookie_reader，先检查是否已经抓到
+            if cookie_reader and self._check_cookie_captured(cookie_reader):
+                logging.info("检测到已抓包成功，无需刷新")
+                return True
+
             # 在开始刷新前，先检查并处理SSL证书错误页面
             logging.info("首先检查是否存在SSL证书错误页面...")
             if self.handle_ssl_certificate_error():
@@ -680,6 +686,11 @@ class WeChatBrowserAutomation:
             for i in range(refresh_count):
                 refresh_num = i + 1
                 logging.info(f"正在执行第 {refresh_num} 次刷新操作...")
+
+                # 刷新前再次检测是否已抓到
+                if cookie_reader and self._check_cookie_captured(cookie_reader):
+                    logging.info(f"🎉 刷新前检测到抓包成功，在第 {refresh_num} 次前结束")
+                    return True
 
                 # 每次刷新前都尝试找到并激活浏览器窗口
                 if self.find_and_activate_browser_window():
@@ -697,6 +708,11 @@ class WeChatBrowserAutomation:
                 # 等待页面刷新完成
                 logging.info(f"等待页面刷新完成... ({refresh_delay}秒)")
                 time.sleep(refresh_delay)
+
+                # 刷新后检测是否已抓到
+                if cookie_reader and self._check_cookie_captured(cookie_reader):
+                    logging.info(f"🎉 刷新后检测到抓包成功，在第 {refresh_num} 次后结束")
+                    return True
 
                 logging.info(f"第 {refresh_num} 次刷新完成")
 

@@ -13,13 +13,13 @@
 /.auto_wechat_extractor/*
 
 # Python缓存文件
-__pycache__/
+/__pycache__/*
 *.py[cod]
 *$py.class
 *.so
 
 # 日志文件
-*.log
+*.logs
 logs/*.log
 
 # 临时文件和运行时生成的文件

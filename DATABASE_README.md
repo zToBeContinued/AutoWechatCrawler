@@ -231,3 +231,10 @@ with DatabaseManager() as db:
 python database_crawler_example.py
 # 选择选项 2: 测试数据库操作
 ```
+
+## 更新日志
+
+- **v1.0**: 初始版本，支持基本的数据库保存功能
+- **v1.1**: 添加自动重连和错误处理
+- **v1.2**: 优化文章ID生成算法
+- **v1.3**: 增加配置文件和安装脚本

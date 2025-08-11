@@ -9,29 +9,30 @@ import sys
 import time
 from datetime import datetime
 from database_manager import DatabaseManager
-from database_config import get_database_config
+from database_config import get_database_config, get_table_config
 
 def test_database_connection():
     """测试数据库连接"""
     print("🔍 测试数据库连接...")
-    
+
     try:
         db_config = get_database_config()
-        print(f"📋 数据库配置: {db_config['host']}:{db_config['port']}/{db_config['database']}")
-        
+        table_name = get_table_config().get('table_name', 'fx_article_records')
+        print(f"📋 数据库配置: {db_config['host']}:{db_config['port']}/{db_config['database']} (表: {table_name})")
+
         with DatabaseManager(**db_config) as db:
             count = db.get_articles_count()
-            print(f"✅ 数据库连接成功！")
-            print(f"📊 当前数据库中有 {count} 篇文章")
+            print("✅ 数据库连接成功！")
+            print(f"📊 当前数据库表 '{table_name}' 中有 {count} 篇文章")
             return True, db_config
-            
+
     except Exception as e:
         print(f"❌ 数据库连接失败: {e}")
         print("请检查:")
         print("  1. MySQL服务是否启动")
         print("  2. database_config.py 中的配置是否正确")
-        print("  3. 数据库 'xuanfa' 是否存在")
-        print("  4. 表 'fx_article_records' 是否存在")
+        print("  3. 目标数据库是否存在")
+        print("  4. 目标表是否存在 (来自 database_config.TABLE_CONFIG['table_name'])")
         return False, None
 
 def test_insert_article():
@@ -153,10 +154,10 @@ def monitor_database_changes():
         with DatabaseManager(**db_config) as db:
             initial_count = db.get_articles_count()
             print(f"初始文章数量: {initial_count}")
-            print("开始监控... (每1h检查一次)")
+            print("开始监控... (每36s检查一次)")
             
             last_count = initial_count
-            check_interval = 3600 # 5秒检查一次
+            check_interval = 36 # 5秒检查一次
             
             while True:
                 time.sleep(check_interval)
@@ -195,15 +196,16 @@ def show_recent_articles(limit=10):
                 print("❌ 数据库连接失败")
                 return
             
+            table_name = get_table_config().get('table_name', 'fx_article_records')
             sql = """
             SELECT article_title, unit_name, view_count, crawl_time, create_time 
-            FROM fx_article_records 
+            FROM {table_name} 
             ORDER BY create_time DESC 
             LIMIT %s
             """
             
             with db.connection.cursor() as cursor:
-                cursor.execute(sql, (limit,))
+                cursor.execute(sql.format(table_name=table_name), (limit,))
                 articles = cursor.fetchall()
                 
                 if articles:
