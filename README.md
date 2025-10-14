@@ -3,7 +3,7 @@
 一个功能强大的微信公众号文章批量抓取工具，支持全自动化运行、多公众号处理、阅读量获取等功能。专为Windows环境设计，可配合任务计划程序实现定时自动抓取。
 <hr>
 
->✨现已增加分支：loop --实现循环爬虫
+>✨现已增加分支：[loop](https://github.com/RichardQt/AutoWechatCrawler/tree/loop) --实现循环爬虫
 
 ## 📚 文档导航
 
